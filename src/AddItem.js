@@ -1,11 +1,11 @@
 import logo from './logo.svg';
 import './App.css';
-import { useEffect, useState,useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import Switch from "react-switch";
 import { Table } from 'react-bootstrap';
 import ModifierTable from './ModifierTable';
 import { firestore } from './firebase';
-import { addDoc, doc, collection, updateDoc } from '@firebase/firestore'
+import { addDoc, doc, collection, updateDoc, getDocs } from '@firebase/firestore'
 import { useLocation } from 'react-router-dom';
 import ImageModal from './ImageModal';
 import { getStorage, ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
@@ -15,7 +15,14 @@ import { type } from '@testing-library/user-event/dist/type';
 
 
 const AddItem = () => {
-  
+  const initialGroupData = {
+    group: "",
+    modifiers: [{ modifier_name: "", set_price: "" }],
+    selectAs: "",
+    enableModifier: false,
+    required: false
+  }
+
   const [itemData, setItemData] = useState({
     item: "",
     image: "",
@@ -24,106 +31,75 @@ const AddItem = () => {
     category: "",
     avail_stock_chk: false,
     popular_item_chk: false,
-    modifier_groups: []
+    // modifier_groups: []
   });
   const [groupList, setGroupList] = useState([]);
-  const [group, setGroup] = useState();
-  const [modifierList, setModifierList] = useState([
-    {
-      modifier_name: "",
-      set_price: ""
-    }
-  ]);
-  const [selectAs, setSelectAs] = useState();
-  const [enableModifier_chk, setEnableModifier_chk] = useState(false);
-  const [required_chk, setRequired_chk] = useState(false);
-  // const [groupData, setGroupData] =useState({
-  //   group:"",
-  //   modifiers:[{modifier_name:"",set_price:""}],
-  //   selectAs:"",
-  //   enableModifier_chk:false,
-  //   required_chk:false
-  //   });
-
+  const [groupData, setGroupData] = useState(initialGroupData);
+  const [resetGroupData,setResetGroupData] = useState([]);
   const [isUpdatingGroup, setIsUpdatingGroup] = useState(false);
   const [editingGroup, setEditingGroup] = useState();
   const [isUpdatingItem, setIsUpdatingItem] = useState(false);
-  const imageRef =useRef(null);
+  const imageRef = useRef(null);
   const [previewImage, setPreviewImage] = useState();
-  const [imageBlob, setImageBlob]= useState();
+  const [imageBlob, setImageBlob] = useState();
   
-
-
   const location = useLocation();
 
   useEffect(() => {
     const data = location?.state;
     if (data) {
-      setItemData(data);
+      let{modifier_groups, ...item_data} = data;
+      setItemData(item_data);
       setGroupList(data.modifier_groups);
       setIsUpdatingItem(true);
     }
   }, [location?.state]);
 
-  useEffect(()=>{
-    console.log(itemData);
-  },[itemData]);
-
-
   const insertModifier = () => {
-    // setGroupData((prevData)=>({
-    //   ...prevData,
-    //   modifiers:[...groupData.modifiers,{modifier_name: "", set_price: "" }]
-    // }));
-    const newModifierList = [...modifierList, { modifier_name: "", set_price: "" }];
-    setModifierList(newModifierList);
+    setGroupData((prevData) => ({
+      ...prevData,
+      modifiers: [...groupData.modifiers, { modifier_name: "", set_price: "" }]
+    }));
   }
 
   const removeModifier = (index) => {
-    const newModifierList = [...modifierList];
-    newModifierList.splice(index, 1);
-    setModifierList(newModifierList);
-    // const newModifiers = [...groupData.modifiers];
-    // newModifiers.splice(index, 1);
-    // setGroupData((prevData)=>({
-    //   ...prevData,
-    //   modifiers: newModifiers
-    // }))
-
+    const newModifiers = [...groupData.modifiers];
+    newModifiers.splice(index, 1);
+    setGroupData((prevData) => ({
+      ...prevData,
+      modifiers: newModifiers
+    }))
   }
 
   const handleSaveModifier = async (e) => {
     e.preventDefault();
-
-
-    if (!isUpdatingGroup && !groupList.some(el => el["group"] === group)) {
+    if (!isUpdatingGroup && !groupList.some(el => el["group"] === groupData.group)) {
       const newGroupList = [...groupList];
-      newGroupList.push({ "group": group, "modifiers": modifierList, "selectAs": selectAs, "enableModifier": enableModifier_chk, "required": required_chk });
+      newGroupList.push({ "group": groupData.group, "modifiers": groupData.modifiers, "selectAs": groupData.selectAs, "enableModifier": groupData.enableModifier, "required": groupData.required });
       setGroupList(newGroupList);
-      setItemData((data) => ({
-        ...data,
-        modifier_groups: newGroupList
-      }));
-
-      handleClearStates();
+      // setItemData((data) => ({
+      //   ...data,
+      //   modifier_groups: newGroupList
+      // })); 
+     setGroupData(initialGroupData);
     }
     else if (isUpdatingGroup) {
+      console.log("updating group");
       const newGroupList = [...groupList];
       const objIndex = newGroupList.findIndex(obj => obj["group"] === editingGroup);
-      newGroupList[objIndex]["group"] = group;
-      newGroupList[objIndex]["modifiers"] = modifierList;
-      newGroupList[objIndex]["selectAs"] = selectAs;
-      newGroupList[objIndex]["enableModifier"] = enableModifier_chk;
-      newGroupList[objIndex]["required"] = required_chk;
-
+      newGroupList[objIndex]["group"] = groupData.group;
+      newGroupList[objIndex]["modifiers"] = groupData.modifiers;
+      newGroupList[objIndex]["selectAs"] = groupData.selectAs;
+      newGroupList[objIndex]["enableModifier"] = groupData.enableModifier;
+      newGroupList[objIndex]["required"] = groupData.required;
+     
       setGroupList(newGroupList);
-      setItemData((data) => ({
-        ...data,
-        modifier_groups: newGroupList
-      }));
-
-      handleClearStates();
-
+      // setItemData((data) => ({
+      //   ...data,
+      //   modifier_groups: newGroupList
+      // }));
+      setIsUpdatingGroup(false);
+      setGroupData(initialGroupData);
     }
     else {
       alert("This group is already added");
@@ -133,16 +109,20 @@ const AddItem = () => {
   const handleEditGroup = (selectedGroup) => {
     setIsUpdatingGroup(true);
     const groupObject = groupList.find(el => el["group"] === selectedGroup);
+    console.log(groupObject);
+    setResetGroupData(groupObject);
     const groupModifiers = groupObject["modifiers"];
     const groupSelectAs = groupObject["selectAs"];
     const groupEnableModifier = groupObject["enableModifier"];
     const groupRequired = groupObject["required"];
 
-    setGroup(selectedGroup);
-    setModifierList(groupModifiers);
-    setSelectAs(groupSelectAs);
-    setEnableModifier_chk(groupEnableModifier);
-    setRequired_chk(groupRequired);
+    setGroupData({
+      group: selectedGroup,
+      modifiers: groupModifiers,
+      selectAs: groupSelectAs,
+      enableModifier: groupEnableModifier,
+      required: groupRequired
+    });
     setEditingGroup(selectedGroup);
   }
 
@@ -159,17 +139,16 @@ const AddItem = () => {
   }
 
   const handleClearStates = () => {
-    setGroup("");
-    setModifierList([
-      {
-        modifier_name: "",
-        set_price: ""
-      }
-    ]);
-    setSelectAs(null);
-    setEnableModifier_chk(false);
-    setRequired_chk(false);
-    setIsUpdatingGroup(false);
+    if(isUpdatingGroup){
+      console.log("not expected");
+      setGroupData(resetGroupData);
+    }
+    else{
+      console.log("clearing form");
+      setGroupData(initialGroupData);
+    }
+      
+    // setIsUpdatingGroup(false);
   }
 
   const handleChangeItemData = (e) => {
@@ -177,30 +156,39 @@ const AddItem = () => {
     const value = e.target.type === "checkbox" ? e.target.checked : e.target.value;
     setItemData((data) => ({ ...data, [name]: value }));
   }
- 
-  const fireStorageUpload =async ()=>{
-    const storage = await getStorage();    
-    const metadata = {
-      contentType: 'image/jpeg'
-    };
-    const storageRef =await  ref(storage, `images/${Date.now()}`);
-    await uploadBytesResumable(storageRef, imageBlob, metadata)
-    .then((snapshot) => {
-      console.log("uploaded");
-      getDownloadURL(snapshot.ref).then((url) => {
-        setItemData((data) => ({
-          ...data,
-          image: url,
-        }));
-      });
-    });
 
-  } 
+  const handleChangeGroupData = (e) =>{
+   const name = e.target.name;
+   const value = e.target.type === "checkbox" ? e.target.checked : e.target.value;
+   setGroupData(data=>({...data, [name]:value}));
+  }
+
+  const fireStorageUpload = async () => {
+    const storage = await getStorage();
+    const metadata = {
+        contentType: 'image/jpeg'
+    };
+    const storageRef = await ref(storage, `images/${Date.now()}`);
+    try {
+        const snapshot = await uploadBytesResumable(storageRef, imageBlob, metadata);
+        const url = await getDownloadURL(snapshot.ref);
+
+        const updatedItemData = {
+            ...itemData,
+            image: url,
+        };
+        setItemData(updatedItemData);
+
+        return updatedItemData;
+    } catch (error) {
+        console.error('Error uploading image:', error);
+        return itemData;
+    }
+}   
 
   const handleSaveItem = async () => {
-    await fireStorageUpload();
+   let data = await fireStorageUpload();
     
-    let data = itemData;
     try {
       if (isUpdatingItem) {
         const ref = doc(firestore, "items", data.id);
@@ -210,11 +198,38 @@ const AddItem = () => {
           .catch(error => {
             console.log(error);
           });
+            
+          const colRef = collection(ref,"modifier_groups");
+          const modifierDocs = (await getDocs(colRef)).docs
+                                .map((group) => ({
+                                  ...group.data(),
+                                  id: group.id
+                              }));
+           modifierDocs.forEach((el)=>{
+           const updatedGroup= groupList.find(group=> group.id===el.id);
+           const docRef = doc(colRef,el.id);
+           updateDoc(docRef,updatedGroup);
+         })
+          
+
       }
       else {
+        // const itemDocRef= doc(firestore,"items",'item-id');
+        // const colRef = collection(itemDocRef,"modifiers_collection");
+        // groupList.forEach(async (el)=>{
+        //   addDoc(colRef,el);
+        // });
+        
+
         const ref = collection(firestore, "items");
         addDoc(ref, data)
-          .then(response => { alert("item is Added successfully!"); })
+          .then(snapshot =>{
+            const itemDocRef= doc(ref, snapshot.id);
+            const colRef = collection(itemDocRef,"modifier_groups");
+            groupList.forEach((el)=>{
+              addDoc(colRef,el);
+            });
+          })
           .catch(error => {
             console.log(error);
           });
@@ -224,9 +239,10 @@ const AddItem = () => {
     catch (e) {
       console.log(e);
     }
+   
   }
 
- 
+
   return (
     <div className="container-style">
       <div className="item-container">
@@ -236,10 +252,10 @@ const AddItem = () => {
         <div className="form-style">
           <form>
             <div className='image-upload'>
-              <div className="image-preview" onClick={()=>{imageRef.current.click()}}>
-                {itemData.image ? <img src={itemData.image} alt="item" id="item-image"/> :
-                 <div><i>Upload image here</i></div>}
-                <input type="file" ref={imageRef} name="image" accept="image/png, image/jpeg,image/jpg" onChange={(e)=>{setPreviewImage(URL.createObjectURL(e.target.files[0]))}} />
+              <div className="image-preview" onClick={() => { imageRef.current.click() }}>
+                {itemData.image ? <img src={itemData.image} alt="item" id="item-image" /> :
+                  <div><i>Upload image here</i></div>}
+                <input type="file" ref={imageRef} name="image" accept="image/png, image/jpeg,image/jpg" onChange={(e) => { setPreviewImage(URL.createObjectURL(e.target.files[0])) }} />
 
               </div>
             </div>
@@ -276,7 +292,7 @@ const AddItem = () => {
                 </select>
               </label>
             </div>
-
+              
             <div>
               <label htmlFor="avail_stock_chk">
                 <input type="checkbox" name="avail_stock_chk" checked={itemData.avail_stock_chk} onChange={handleChangeItemData} />
@@ -293,7 +309,6 @@ const AddItem = () => {
           </form>
         </div>
       </div>
-     
 
       <div>
         <div className="modifier-container">
@@ -305,31 +320,31 @@ const AddItem = () => {
               <div>
                 <label htmlFor="group">
                   <span>Group Name</span>
-                  <input type="text" name="group" value={group} onChange={(e) => setGroup(e.target.value)} required />
+                  <input type="text" name="group" value={groupData.group} onChange={handleChangeGroupData} required />
                 </label>
               </div>
-              {modifierList.map((mod, i) => {
+              {groupData.modifiers.map((mod, i) => {
                 return (
                   <div className="modifier-space" key={i}>
                     <div className="modifier">
                       <label htmlFor={`modifier_name_${i}`} >Modifier Name</label>
                       <input type="text" name={`modifier_name_${i}`} value={mod.modifier_name} onChange={(e) => {
-                        const newModifierList = [...modifierList];
-                        newModifierList[i].modifier_name = e.target.value;
-                        setModifierList(newModifierList);
+                        const newModifiers = [...groupData.modifiers];
+                        newModifiers[i].modifier_name = e.target.value;
+                        setGroupData((data)=>({...data, modifiers:newModifiers}));
                       }} required />
                     </div>
 
                     <div className="modifier">
                       <label htmlFor={`set_price_${i}`}>Set Price</label>
                       <input type="number" name={`set_price_${i}`} value={mod.set_price} onChange={(e) => {
-                        const newModifierList = [...modifierList];
-                        newModifierList[i].set_price = e.target.value;
-                        setModifierList(newModifierList);
+                        const newModifiers = [...groupData.modifiers];
+                        newModifiers[i].set_price = e.target.value;
+                        setGroupData((data)=>({...data, modifiers:newModifiers}));
                       }} required />
                     </div>
                     <div style={{ display: "flex" }}>
-                      {modifierList.length > 1 && <button type="button" onClick={() => removeModifier(i)}>Remove</button>}
+                      {groupData.modifiers.length > 1 && <button type="button" onClick={() => removeModifier(i)}>Remove</button>}
                     </div>
                   </div>
                 )
@@ -341,22 +356,22 @@ const AddItem = () => {
 
               <div>
                 <span><b>Select as</b></span>
-                <label htmlFor="selection">
-                  <input type="radio" name="selection" value="single" checked={selectAs === "single"} onChange={(e) => setSelectAs(e.target.value)} />
+                <label htmlFor="selectAs">
+                  <input type="radio" name="selectAs" value="single" checked={groupData.selectAs === "single"} onChange={handleChangeGroupData} />
                   <span>Single</span>
-                  <input type="radio" name="selection" value="multiple" checked={selectAs === "multiple"} onChange={(e) => setSelectAs(e.target.value)} />
+                  <input type="radio" name="selectAs" value="multiple" checked={groupData.selectAs === "multiple"} onChange={handleChangeGroupData} />
                   <span>Multiple</span>
                 </label>
               </div>
-                 
+
               <div>
-                <label htmlFor='enable_modifier'>
-                  <input type="checkbox" name="enable_modifier" checked={enableModifier_chk} onChange={() => setEnableModifier_chk(!enableModifier_chk)} />
+                <label htmlFor='enableModifier'>
+                  <input type="checkbox" name="enableModifier" checked={groupData.enableModifier} onChange={handleChangeGroupData} />
                   <span>Enable Modifier</span>
                 </label>
 
                 <label htmlFor='required'>
-                  <input type="checkbox" name="required" checked={required_chk} onChange={() => setRequired_chk(!required_chk)} />
+                  <input type="checkbox" name="required" checked={groupData.required} onChange={handleChangeGroupData} />
                   <span>Required</span>
                 </label>
               </div>
@@ -370,9 +385,9 @@ const AddItem = () => {
         </div>
         {<div>
           <button type="button" onClick={handleSaveItem}>{!isUpdatingItem ? "Save Item" : "Update Item"}</button>
-        </div>} 
+        </div>}
       </div>
-      {previewImage && <ImageModal previewImage={previewImage} setPreviewImage={setPreviewImage} setItemData={setItemData} setImageBlob={setImageBlob}/>}
+      {previewImage && <ImageModal previewImage={previewImage} setPreviewImage={setPreviewImage} setItemData={setItemData} setImageBlob={setImageBlob} />}
     </div>
   );
 }
